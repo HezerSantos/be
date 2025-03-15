@@ -1,57 +1,62 @@
-const express = require("express")
-const app = express()
+const express = require("express");
+const app = express();
 const path = require('path');
 require('dotenv').config();
-
-//set up
-app.use(express.static(assetsPath));
-app.set("views", path.join(__dirname, "views"))
-app.set("view engine", "ejs")
-app.use(express.urlencoded({ extended: true }));
-const assetsPath = path.join(__dirname, "public")
-
-//secutiry
+const cors = require('cors');
 const helmet = require('helmet');
-app.use(helmet());
+const {passport} = require("./passport");
+const { format } = require('date-fns');
+const signupRouter = require("./routes/signupRouter");
+const loginRouter = require("./routes/loginRouter");
+const dashboardRouter = require("./routes/dashboardRouter");
 
-//auth
-const session = require("express-session");
-const passport = require("./passport");
+const cookieParser = require('cookie-parser');
+app.use(cookieParser());
 
-app.use(session({ 
-    secret: process.env.SESSION_SECRET, 
-    resave: false, saveUninitialized: false,
-    cookie: {
-      secure: process.env.NODE_ENV === 'production',  // Only use secure cookies in production
-      httpOnly: true,  // Prevents JavaScript access to the cookie (helps prevent XSS)
-      sameSite: 'strict'  // Helps prevent CSRF attacks
+
+// Setup middleware
+app.set("views", path.join(__dirname, "views"));
+app.set("view engine", "ejs");
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+// Security Middleware
+// app.use(helmet());
+
+// CORS Setup
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (origin === 'http://localhost:5173') {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS not allowed for this origin'), false);
     }
-}));
+  },
+  methods: 'GET, POST, PUT, DELETE',
+  allowedHeaders: 'Content-Type,Authorization, Cookie',
+  credentials: true // Allow cookies to be sent
+};
 
+app.use(cors(corsOptions));
+
+
+// Initialize Passport
 app.use(passport.initialize());
-app.use(passport.session());
+
+// Serve static assets
+const assetsPath = path.join(__dirname, "public");
+app.use(express.static(assetsPath));
+
+app.use("/signup", signupRouter)
+app.use("/login", loginRouter)
+app.use("/dashboard", dashboardRouter)
 
 
-
-//log in
-// app.use("/login", loginRouter)
-
-//log out
-// app.get("/log-out", (req, res, next) => {
-//     req.logout((err) => {
-//       if (err) {
-//         return next(err);
-//       }
-//       if (req.user){
-//         console.log("logout")
-//       } else {
-//         console.log("null")
-//       }
-//       res.redirect("/login");
-//     });
-//   });
-
-
-app.listen(3000, () => {
-    console.log('Running App')
+app.post("/logout", (req, res, next) => {
+  res.clearCookie('token', { path: '/' }); // Clears the HttpOnly cookie
+  res.json({ message: 'Logged out successfully' });
 })
+
+// Server
+app.listen(8080, () => {
+  console.log('App running on port 8080');
+});

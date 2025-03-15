@@ -1,47 +1,93 @@
 const passport = require("passport");
-const LocalStrategy = require("passport-local").Strategy;
 const bcrypt = require("bcryptjs");
-const pool = require("./db/pool");
-const db = require("./db/queries")
+const prisma = require('./prsima')
 const { format } = require('date-fns');
+require('dotenv').config();
+const { Strategy: JwtStrategy, ExtractJwt } = require("passport-jwt");
+const jwt = require('jsonwebtoken');
+
+
+const JWT_SECRET = process.env.JWT_SECRET;
+
 passport.use(
-    new LocalStrategy(async (username, password, done) => {
+  new JwtStrategy(
+    {
+      jwtFromRequest: (req) => {
+        const token = req.cookies.token;
+        // console.log("Extracted token from request:", token ? "Token exists" : "No token");
+        return token || null;
+      },
+      secretOrKey: JWT_SECRET,
+    },
+    async (jwtPayload, done) => {
       try {
-        const { rows } = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
-        const user = rows[0];
+        const user = await prisma.user.findUnique({
+          where: { id: jwtPayload.id },
+        });
+
         if (!user) {
-            console.log("Incorrect username");
-          return done(null, false, { message: "Incorrect username or password *" });
-        }
-        const match = await bcrypt.compare(password, user.password);
-        if (!match) {
-          // passwords do not match!
-          console.log("Incorrect password");
-          return done(null, false, { message: "Incorrect username or password *" })
+          return done(null, false, { message: "User not found" });
         }
 
-
-        console.log("User authenticated", format(new Date(), 'yyyy-MM-dd'));
         return done(null, user);
-      } catch(err) {
+      } catch (err) {
         return done(err);
       }
-    })
-  );
-
-  passport.serializeUser((user, done) => {
-    done(null, user.id);
-  });
-
-  passport.deserializeUser(async (id, done) => {
-    try {
-      const { rows } = await pool.query("SELECT * FROM users WHERE id = $1", [id]);
-      const user = rows[0];
-  
-      done(null, user);
-    } catch(err) {
-      done(err);
     }
-  });
+  )
+);
 
-  module.exports = passport
+// Authenticate User (example)
+async function authenticateUser(username, password) {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { username },
+    });
+
+    if (!user) {
+      console.log("Incorrect username or password");
+      throw new Error("Incorrect username or password");
+    }
+
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
+      console.log("Incorrect username or password");
+      throw new Error("Incorrect username or password");
+    }
+
+    // Create JWT payload
+    const payload = {
+      id: user.id,
+    };
+
+    // Sign the JWT token
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '1h' });
+
+    console.log("User authenticated", format(new Date(), 'yyyy-MM-dd'));
+
+    return { user, token };
+  } catch (err) {
+    throw err;
+  }
+}
+
+// Passport Serialization & Deserialization
+passport.serializeUser((user, done) => {
+  done(null, user.id);
+});
+
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id },
+    });
+    done(null, user);
+  } catch (err) {
+    done(err);
+  }
+});
+
+module.exports = {
+  passport,
+  authenticateUser,  // Export the authentication function for use in routes
+};
